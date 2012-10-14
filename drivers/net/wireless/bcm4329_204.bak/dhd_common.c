@@ -130,6 +130,8 @@ dhd_common_init(void)
 #else
 	nv_path[0] = '\0';
 #endif
+DHD_DEFAULT(("What is driver path: %s\n", fw_path));
+
 }
 
 static int

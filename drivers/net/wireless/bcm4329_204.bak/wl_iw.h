@@ -153,7 +153,6 @@ struct ap_profile {
 	uint32	channel;
 	uint32	preamble;
 	uint32	max_scb;
-	uint32	closednet;
 };
 
 

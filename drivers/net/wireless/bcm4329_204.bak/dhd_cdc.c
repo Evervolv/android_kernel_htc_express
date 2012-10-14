@@ -560,9 +560,13 @@ int dhd_set_pfn_ssid(char * ssid, int ssid_len)
 		if (pfn_ssid_set.pfn_ssids[i].weight > pfn_ssid_set.pfn_ssids[weightest].weight)
 			weightest = i;
 
-		if (!strcmp(ssid, pfn_ssid_set.pfn_ssids[i].ssid))
+		if (!strcmp(ssid, pfn_ssid_set.pfn_ssids[i].ssid)){
+			myprintf("what is the first ssid %s\n", pfn_ssid_set.pfn_ssids[i].ssid);
 			samessid = i;
+		}
 	}
+	samessid = 0xffff;
+	weightest = 0;
 
 	myprintf("lightest is %d, weightest is %d, samessid = %d\n", lightest, weightest, samessid);
 
@@ -1134,7 +1138,7 @@ dhd_preinit_ioctls(dhd_pub_t *dhd)
 	setbit(eventmask, WLC_E_NDIS_LINK);
 	setbit(eventmask, WLC_E_MIC_ERROR);
 	setbit(eventmask, WLC_E_PMKID_CACHE);
-	/* setbit(eventmask, WLC_E_TXFAIL); */
+	setbit(eventmask, WLC_E_TXFAIL);
 	setbit(eventmask, WLC_E_JOIN_START);
 	setbit(eventmask, WLC_E_SCAN_COMPLETE);
 	setbit(eventmask, WLC_E_ASSOCREQ_IE);

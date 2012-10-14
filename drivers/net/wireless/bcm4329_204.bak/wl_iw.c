@@ -2019,8 +2019,6 @@ int init_ap_profile_from_string(char *param_str, struct ap_profile *ap_cfg)
 
 	ret |= get_parmeter_from_string(&str_ptr, "MAX_SCB=", PTYPE_INTDEC,  &ap_cfg->max_scb, 5);
 
-	get_parmeter_from_string(&str_ptr, "HIDDEN=", PTYPE_INTDEC,  &ap_cfg->closednet, 5);
-
 	return ret;
 }
 #endif
@@ -2053,7 +2051,7 @@ static int iwpriv_set_ap_config(struct net_device *dev,
 		}
 
 		extra[wrqu->data.length] = 0;
-		/* WL_SOFTAP((" Got str param in iw_point: %s\n", extra)); */
+		WL_SOFTAP((" Got str param in iw_point: %s\n", extra));
 
 		memset(ap_cfg, 0, sizeof(struct ap_profile));
 
@@ -4341,10 +4339,9 @@ wl_iw_get_scan(
 	if ((error = dev_wlc_ioctl(dev, WLC_SCAN_RESULTS, list, len))) {
 		WL_ERROR(("%s: %s : Scan_results ERROR %d\n", dev->name, __FUNCTION__, len));
 		dwrq->length = len;
-		if (g_scan_specified_ssid){
-			g_scan_specified_ssid = 0;
+		if (g_scan_specified_ssid)
 			kfree(list);
-		}
+		wl_iw_fixed_scan(dev);
 		return 0;
 	}
 	list->buflen = dtoh32(list->buflen);
@@ -6682,7 +6679,6 @@ static int set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 	int i;
 	int res = 0;
 	int apsta_var = 0;
-	int closednet = 0;
 #ifndef AP_ONLY
 	int iolen = 0;
 	int mkvar_err = 0;
@@ -6699,13 +6695,10 @@ static int set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 	WL_SOFTAP(("wl_iw: set ap profile:\n"));
 	WL_SOFTAP(("	ssid = '%s'\n", ap->ssid));
 	WL_SOFTAP(("	security = '%s'\n", ap->sec));
-#if 0
 	if (ap->key[0] != '\0')
 		WL_SOFTAP(("	key = '%s'\n", ap->key));
-#endif
 	WL_SOFTAP(("	channel = %d\n", ap->channel));
 	WL_SOFTAP(("	max scb = %d\n", ap->max_scb));
-	WL_SOFTAP(("	hidden = %d\n", ap->closednet));
 
 	if (!ap_cfg_running) {
 #ifndef AP_ONLY
@@ -6742,20 +6735,6 @@ static int set_ap_cfg(struct net_device *dev, struct ap_profile *ap)
 
 		res |= dev_iw_write_cfg1_bss_var(dev, 0);
 	}
-
-#ifdef AP_ONLY
-	closednet = ap->closednet;
-
-	res |= dev_wlc_intvar_set(dev, "closednet", closednet);
-
-#else
-	iolen = wl_bssiovar_mkbuf("closednet",
-		bsscfg_index,  &ap->closednet, sizeof(ap->closednet)+4,
-		buf, sizeof(buf), &mkvar_err);
-	ASSERT(iolen);
-	res |= dev_wlc_ioctl(dev, WLC_SET_VAR, buf, iolen);
-
-#endif
 
 #ifdef  CUSTOMER_HW2 /* HTC need limited the selected channel */
 	if (((ap->channel >> 8) || (ap->channel == 0)) && (!ap_cfg_running))
@@ -6812,7 +6791,7 @@ get_channel_retry:
 				chosen = 6; /*Alan: Set default channel when get auto channel failed*/
 			}
 		}
-		if ((chosen == start_channel) && (!rescan++)) {
+		if ((chosen == 1) && (!rescan++)) {
 			retry = 0;
 			goto auto_channel_retry;
 		}
@@ -6929,10 +6908,8 @@ static int set_ap_cfg_2(struct net_device *dev, struct ap_profile *ap)
 	WL_SOFTAP(("wl_iw: set ap profile:\n"));
 	WL_SOFTAP(("	ssid = '%s'\n", ap->ssid));
 	WL_SOFTAP(("	security = '%s'\n", ap->sec));
-#if 0
 	if (ap->key[0] != '\0')
 		WL_SOFTAP(("	key = '%s'\n", ap->key));
-#endif
 	WL_SOFTAP(("	channel = %d\n", ap->channel));
 	WL_SOFTAP(("	max scb = %d\n", ap->max_scb));
 
@@ -7064,10 +7041,8 @@ static int wl_iw_set_ap_security(struct net_device *dev, struct ap_profile *ap)
 	WL_SOFTAP(("wl_iw: set ap profile:\n"));
 	WL_SOFTAP(("	ssid = '%s'\n", ap->ssid));
 	WL_SOFTAP(("	security = '%s'\n", ap->sec));
-#if 0
 	if (ap->key[0] != '\0')
 		WL_SOFTAP(("	key = '%s'\n", ap->key));
-#endif
 	WL_SOFTAP(("	channel = %d\n", ap->channel));
 	WL_SOFTAP(("	max scb = %d\n", ap->max_scb));
 
@@ -8291,6 +8266,9 @@ int wl_iw_ioctl(
 	int token_size = 1, max_tokens = 0, ret = 0;
 
 	WL_TRACE(("%s: cmd:%x alled via dhd->do_ioctl()entry point\n", __FUNCTION__, cmd));
+        WL_DEFAULT(("%s: cmd:%x alled via dhd->do_ioctl()entry point\n", __FUNCTION__, cmd));
+
+	
 	if (cmd < SIOCIWFIRST ||
 		IW_IOCTL_IDX(cmd) >= ARRAYSIZE(wl_iw_handler) ||
 		!(handler = wl_iw_handler[IW_IOCTL_IDX(cmd)])) {
@@ -8510,6 +8488,8 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 	}
 
 	WL_TRACE(("%s: dev=%s event=%d \n", __FUNCTION__, dev->name, event_type));
+        WL_DEFAULT(("%s: dev=%s event=%d \n", __FUNCTION__, dev->name, event_type));
+
 
 	switch (event_type) {
 #if defined(CONFIG_BCM4329_SOFTAP)
@@ -8598,6 +8578,8 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 #endif
 		break;
 	case WLC_E_LINK:
+		WL_DEFAULT(("whatever yu,%d\n", event_type));
+		break;	
 	case WLC_E_NDIS_LINK:
 		cmd = SIOCGIWAP;
 		if (!(flags & WLC_EVENT_MSG_LINK)) {
@@ -9083,13 +9065,7 @@ static int ap_fail_count = 0;
 static int
 _ap_protect_sysioc_thread(void *data)
 {
-#if 0
 	int isup;
-#else
-	char iovbuf[WL_EVENTING_MASK_LEN + 12]; /* Room for "event_msgs" + '\0' + bitvec */
-	static unsigned int txphyerr = 0;
-	unsigned int curr_txphyerr = 0;
-#endif
 	int ret = 0;
 	DAEMONIZE("ap_sysioc");
 
@@ -9105,34 +9081,14 @@ _ap_protect_sysioc_thread(void *data)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
 	rtnl_lock();
 #endif
-#if 0
 		if ((ret = dev_wlc_ioctl(priv_dev, WLC_GET_UP, &isup, sizeof(isup))) != 0)
 				ap_fail_count++;
 		else
 				ap_fail_count = 0;
-#else
-		strcpy(iovbuf, "txphyerr");
-		if ((ret = dev_wlc_ioctl(priv_dev, WLC_GET_VAR, iovbuf, sizeof(iovbuf))) < 0)
-			ap_fail_count++;
-		else {
-			curr_txphyerr = *(unsigned int*)iovbuf;
-			//myprintf("%s: curr_txphyerr(%d)/txphyerr(%d)\n", __FUNCTION__, curr_txphyerr, txphyerr);
-			if ( (curr_txphyerr - txphyerr) > 5000  ) {
-				myprintf("%s: curr_txphyerr(%d) is over txphyerr (%d). fail count + 1\n", __FUNCTION__, curr_txphyerr, txphyerr);
-				ap_fail_count++;
-			} else {
-				ap_fail_count = 0;
-			}
-			txphyerr = curr_txphyerr;
-		}
-#endif
 
 		if (ap_fail_count == AP_MAX_FAIL_COUNT) {
 			wl_iw_restart(priv_dev);
-			if (ap_cfg_running)
-				wl_iw_ap_restart();
-			txphyerr = 0;
-			ap_fail_count = 0;
+			wl_iw_ap_restart();
 		}
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
@@ -9373,12 +9329,6 @@ void wl_iw_detach(void)
 	}
 	mutex_unlock(&wl_wificall_mutex);
 	// perf_lock_deinit(&wl_wificall_perf_lock);
-
-	/* delete buffered wps ie if any */
-	if (ie_setbuf) {
-		kfree(ie_setbuf);
-		ie_setbuf = NULL;
-	}
 
 	priv_dev = NULL;
 }
