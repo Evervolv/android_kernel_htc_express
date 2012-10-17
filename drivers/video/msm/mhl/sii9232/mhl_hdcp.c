@@ -28,7 +28,6 @@
 #include "mhl_access.h"
 #include "mhl_hdcp.h"
 #include "inc/defs.h"
-#include "inc/tdsm.h"
 
 #if 1
 #define HDCP_DBG(fmt, arg...) PR_DISP_DEBUG( "[hdmi/hdcp]%s: " fmt, __func__, ##arg)
@@ -39,9 +38,6 @@
 #define hdcp_err(fmt, arg...) pr_err( "[hdmi/hdcp]%s: " fmt, __func__, ##arg)
 #define AKSV_SIZE              5
 #define NUM_OF_ONES_IN_KSV    20
-#define HDCP_WORKAROUND_INTERVAL 5000
-
-
 bool HDCP_TxSupports;
 bool HDCP_Started;
 bool HDCP_AksvValid;
@@ -51,9 +47,6 @@ bool HDCP_Success = false;
 u8 HDCP_LinkProtectionLevel;
 
 static struct mhl_info *mhl_hdcp_info;
-
-extern int PutNextTxEvent(TxPowerStateEvent_e event);
-extern void HdcpTimerStart(unsigned long m_sec);
 
 bool hdcp_check_support()
 {
@@ -103,7 +96,6 @@ void hdcp_on(const char *caller)
 {
 	HDCP_DBG(", caller=%s\n", caller);
 	WriteByteTPI(0x2A, 0x01);
-	HdcpTimerStart(HDCP_WORKAROUND_INTERVAL);  //7.89j
 	HDCP_Started = true;
 	#ifndef HTC_DISABLE_HDCP_WORKAROUND
 	HDCP_Success = false;
@@ -114,7 +106,6 @@ void hdcp_off()
 {
 	HDCP_DBG("\n");
 	ReadModifyWriteTPI(0x1A, BIT_3, 0x08);
-	//PutNextTxEvent(txpseHDCPDeAuthenticated); //7.89j
 	WriteByteTPI(0x2A, 0x00);
 	HDCP_Started = false;
 	#ifndef HTC_DISABLE_HDCP_WORKAROUND
@@ -157,7 +148,6 @@ void hdcp_restart()
 	DisableTMDS();
 	hdcp_off();
 	EnableTMDS();
-	HdcpTimerStart(HDCP_WORKAROUND_INTERVAL); //7.89j
 }
 
 void hdcp_check_status(u8 InterruptStatusImage)
@@ -217,7 +207,6 @@ void hdcp_check_status(u8 InterruptStatusImage)
 				if (mhl_hdcp_info->check_hdmi_sink()) {
 					ReadModifyWriteTPI(0x26, BIT_4, 0);
 				}
-				PutNextTxEvent(txpseHDCPAuthenticated);  //7.98j
 				ReadModifyWriteTPI(0x1A, BIT_3, 0);
 				#ifndef HTC_DISABLE_HDCP_WORKAROUND
 				HDCP_Success = true;
