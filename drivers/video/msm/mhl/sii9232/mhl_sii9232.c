@@ -45,6 +45,7 @@
 #include <mach/board.h>
 
 #define DEBUG
+#define HONEYCOMB_HDMI
 #define MHL_RCP_KETEVENT
 
 #ifdef MHL_RCP_KETEVENT
@@ -67,6 +68,9 @@ struct mhl_sii9232_info
         int irq;
 	bool isMHL;
 	struct work_struct mhl_notifier_work;
+#ifdef HONEYCOMB_HDMI
+	struct switch_dev hpd_switch;
+#endif
 	#ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend early_suspend;
 	#endif //CONFIG_HAS_EARLYSUSPEND
@@ -191,6 +195,9 @@ static void sii9232_change_hdmi_state(int online)
 		switch_send_event(BIT_HDMI_CABLE, online);
 		switch_send_event(BIT_HDMI_AUDIO, online);
 #endif							
+#ifdef HONEYCOMB_HDMI
+	switch_set_state(&sii9232_info_ptr->hpd_switch, online);
+#endif
         PR_DISP_INFO("sii9232_uevent: hdmi_state%d\n", online);
 }
 
@@ -512,6 +519,10 @@ static int sii9232_probe(struct platform_device *pdev)
 	sii9232->info.device_suspend = sii9232_device_suspend;
 	sii9232->info.device_wakeup = sii9232_device_wakeup;
 
+#ifdef HONEYCOMB_HDMI
+	sii9232->hpd_switch.name = "hdmi";
+	switch_dev_register(&sii9232->hpd_switch);
+#endif
 #ifdef CONFIG_USB_ACCESSORY_DETECT
 	INIT_WORK(&sii9232->mhl_notifier_work, send_mhl_connect_notify);
 #endif
@@ -598,6 +609,9 @@ err_platform_data_null:
 
 static int sii9232_remove(struct platform_device *pdev)
 {
+#ifdef HONEYCOMB_HDMI
+	switch_dev_unregister(&sii9232_info_ptr->hpd_switch);
+#endif
 	gpio_free(sii9232_info_ptr->reset_pin);
 	gpio_free(sii9232_info_ptr->intr_pin);
 	destroy_workqueue(sii9232_info_ptr->wq);

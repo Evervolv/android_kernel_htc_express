@@ -76,10 +76,12 @@ static struct mhl_info *mhl_tpi_info;
 bool bInTpiMode = false;
 static unsigned long rsenCheckTimeout = 0;
 static unsigned long deglitchTimeout = 0;
+static unsigned long hdcp_timeout_jiffies = 0;
 #ifndef HTC_DISABLE_HDCP_WORKAROUND
 static unsigned long hdcpCheckTimeout = 0;
 #endif //HTC_DISABLE_HDCP_WORKAROUND
 
+extern void hdcp_restart(void);
 extern void CpCbusInitialize(struct mhl_info *mhl_cbus_info);
 extern void CpCbusHandler(void);
 extern int toggleCbus;
@@ -738,6 +740,12 @@ end_read_edid:
 
 StateTableEntry_t  txsteD0_NoConnection[] =
 {
+    {
+          txpseHDMI_CableConnected
+        , txpsD0_HDMICableConnectedReadyToSampleRSEN
+        , txtfHDMICableConnected
+    }
+    ,
     {   txpseMHL_Established
         ,txpsD0_Connected
         , txtfMHL_Established|txtfSetDeferRSEN_SamplingTimer
@@ -788,10 +796,16 @@ StateTableEntry_t  txsteD0_Connected[] =
         ,txtfSetDeGlitchTimer | txtfLastEntryThisRow
     }
 };
-
-#define TXSF_D0_READY_TO_SAMPLE_RSEN (TXSF_D0_COMMON | txsfSampleRSEN)
+//7.89j  stert
+#define TXSF_D0_CONNECTED_READY_TO_SAMPLE_RSEN (TXSF_D0_COMMON | txsfSampleRSEN)
 StateTableEntry_t  txsteD0_ConnectedReadyToSampleRSEN[] =
 {
+{
+          txpseHDMI_CableConnected
+        , txpsD0_HDMICableConnectedReadyToSampleRSEN
+        , txtfHDMICableConnected
+    }
+    ,
     {
         txpseUSB_Established
         , txpsD3
@@ -826,13 +840,176 @@ StateTableEntry_t  txsteD3[] =
     }
 };
 
+#define TXSF_D0_HDMI_CABLE_CONNECTED_COMMON (TXSF_D0_COMMON |  txsfCheckHDCPStatus )
+#define TXSF_D0_HDMI_CABLE_CONNECTED        (TXSF_D0_HDMI_CABLE_CONNECTED_COMMON |txsfCheckHDCPTimer| txsfCheckDeferRSEN_SamplingTimerExpired )
+StateTableEntry_t txsteD0_HDMICableConnected[]=
+{
+    {
+        txpseHDCPAuthenticated
+        ,txpsD0_HDCPAuthenticated
+        ,txtfHDCPAuthenticated
+    }
+    ,
+    {
+          txpseHDMI_CableDisconnected
+        , txpsD0_Connected
+        , txtfHDMICableDisconnected
+    }
+    ,
+    {
+        txpseDeferRSEN_SamplingTimerExpired
+        ,txpsD0_HDMICableConnectedReadyToSampleRSEN
+        ,txtfSetDeGlitchTimer
+    }
+    ,
+    {
+        txpseUSB_Established
+        , txpsD3
+        , txtfUSB_Established
+    }
+    ,
+    {
+          txpseCBUS_LockOut
+        , txpsD3
+        , txtfCBUS_LockOut | txtfGoToD3
+    }
+    ,
+    {
+          txpseRSEN_SampledLow
+        , txpsD3
+        , txtfGoToD3 | txtfLastEntryThisRow
+    }
+
+};
+
+#define TXSF_D0_HDMI_CABLE_CONNECTED_READY_TO_SAMPLE_RSEN (TXSF_D0_HDMI_CABLE_CONNECTED_COMMON |txsfCheckHDCPTimer| txsfSampleRSEN)
+StateTableEntry_t txsteD0_HDMICableConnectedReadyToSampleRSEN[]=
+{
+    {
+        txpseHDCPAuthenticated
+        ,txpsD0_HDCPAuthenticatedReadyToSampleRSEN
+        ,txtfHDCPAuthenticated
+    }
+    ,
+    {
+          txpseHDMI_CableDisconnected
+        , txpsD0_ConnectedReadyToSampleRSEN
+        , txtfHDMICableDisconnected
+    }
+    ,
+    {
+        txpseUSB_Established
+        , txpsD3
+        , txtfUSB_Established
+    }
+    ,
+    {
+          txpseCBUS_LockOut
+        , txpsD3
+        , txtfCBUS_LockOut | txtfGoToD3
+    }
+    ,
+    {
+          txpseRSEN_SampledLow
+        , txpsD3
+        , txtfGoToD3 | txtfLastEntryThisRow
+    }
+
+};
+
+#define TXSF_D0_HDCP_AUTHENTICATED_COMMON (TXSF_D0_HDMI_CABLE_CONNECTED_COMMON )
+#define TXSF_D0_HDCP_AUTHENTICATED        (TXSF_D0_HDCP_AUTHENTICATED_COMMON | txsfCheckDeferRSEN_SamplingTimerExpired)
+StateTableEntry_t txsteD0_HDCPAuthenticated[]=
+{
+    {
+        txpseHDCPDeAuthenticated
+        ,txpsD0_HDMICableConnected
+        ,txtfHDCPDeAuthenticated
+    }
+    ,
+    {
+          txpseHDMI_CableDisconnected
+        , txpsD0_ConnectedReadyToSampleRSEN
+        , txtfHDMICableDisconnected
+    }
+    ,
+    {
+        txpseDeferRSEN_SamplingTimerExpired
+        ,txpsD0_HDCPAuthenticatedReadyToSampleRSEN
+        ,txtfSetDeGlitchTimer
+    }
+    ,
+    {
+        txpseUSB_Established
+        , txpsD3
+        , txtfUSB_Established
+    }
+    ,
+    {
+          txpseCBUS_LockOut
+        , txpsD3
+        , txtfCBUS_LockOut | txtfGoToD3
+    }
+    ,
+    {
+          txpseRSEN_SampledLow
+        , txpsD3
+        , txtfGoToD3 | txtfLastEntryThisRow
+    }
+
+};
+
+#define TXSF_D0_HDCP_AUTHENTICATED_READY_TO_SAMPLE_RSEN (TXSF_D0_HDCP_AUTHENTICATED_COMMON| txsfSampleRSEN)
+StateTableEntry_t txsteD0_HDCPAuthenticatedReadyToSampleRSEN[]=
+{
+    {
+        txpseHDCPDeAuthenticated
+        ,txpsD0_HDMICableConnectedReadyToSampleRSEN
+        ,txtfHDCPDeAuthenticated
+    }
+    ,
+    {
+          txpseHDMI_CableDisconnected
+        , txpsD0_ConnectedReadyToSampleRSEN
+        , txtfHDMICableDisconnected
+    }
+    ,
+    {
+        txpseUSB_Established
+        , txpsD3
+        , txtfUSB_Established
+    }
+    ,
+    {
+          txpseCBUS_LockOut
+        , txpsD3
+        , txtfCBUS_LockOut | txtfGoToD3
+    }
+    ,
+    {
+          txpseRSEN_SampledLow
+        , txpsD3
+        , txtfGoToD3 | txtfLastEntryThisRow
+    }
+
+};
+
+// The order of the following table is CRITICAL.
+//  Do NOT insert anything without a corresponding insertion into TxPowerState_e
+//   See tdsm.h for the definition of TxPowerState_e
 StateTableRowHeader_t TxPowerStateTransitionAndResponseTable[txps_NUM_STATES]=
 {
       { TXSF_D0_NO_CONNECTION           ,txsteD0_NoConnection               }
     , { TXSF_D0_CONNECTED               ,txsteD0_Connected                  }
-    , { TXSF_D0_READY_TO_SAMPLE_RSEN    ,txsteD0_ConnectedReadyToSampleRSEN }
+    , { TXSF_D0_CONNECTED_READY_TO_SAMPLE_RSEN              ,txsteD0_ConnectedReadyToSampleRSEN         }
     , { TXSF_D3_REGISTERS_INACCESSIBLE  ,txsteD3                            }
+    , { TXSF_D0_HDMI_CABLE_CONNECTED                        ,txsteD0_HDMICableConnected                 }
+    , { TXSF_D0_HDMI_CABLE_CONNECTED_READY_TO_SAMPLE_RSEN   ,txsteD0_HDMICableConnectedReadyToSampleRSEN}
+    , { TXSF_D0_HDCP_AUTHENTICATED                          ,txsteD0_HDCPAuthenticated                  }
+    , { TXSF_D0_HDCP_AUTHENTICATED_READY_TO_SAMPLE_RSEN     ,txsteD0_HDCPAuthenticatedReadyToSampleRSEN }
 };
+//7.89j  end
+
 
 ByteQueue_t txEventQueue={0,0,{0}};
 
@@ -904,7 +1081,7 @@ int PutNextTxEvent(TxPowerStateEvent_e event)
     return 1;
 }
 
-uint8_t ExamineIntr4(bool examineRGND_Rdy)
+uint8_t ExamineIntr4(void)   //7.89j
 {
     uint8_t intr4Image;
     uint8_t intr4IntsHandled=0;
@@ -913,20 +1090,14 @@ uint8_t ExamineIntr4(bool examineRGND_Rdy)
 	if (intr4Image & BIT_2)
 	{
 		// MHL Mode Established
-        if (!PutNextTxEvent(txpseMHL_Established))
-        {
-
-        }
+        PutNextTxEvent(txpseMHL_Established);
         intr4IntsHandled |= BIT_2;
 	}
 
 	if (intr4Image & BIT_3)
 	{
 		// usb mode established
-        if (!PutNextTxEvent(txpseUSB_Established))
-        {
-
-        }
+        PutNextTxEvent(txpseUSB_Established);
         intr4IntsHandled |= BIT_3;
 	}
 
@@ -934,22 +1105,14 @@ uint8_t ExamineIntr4(bool examineRGND_Rdy)
 	{
 		// CBus Lockout
         TPI_DEBUG_PRINT(("CBus Lockout\n"));
-        if (!PutNextTxEvent(txpseCBUS_LockOut))
-        {
-        }
+        PutNextTxEvent(txpseCBUS_LockOut);
         intr4IntsHandled |= BIT_4;
 	}
 
    	if (intr4Image & BIT_6)
    	{
    		// RGND Detection
-        if (examineRGND_Rdy)
-        {
-        }
-        if (!PutNextTxEvent(txpseRGND_Ready))
-        {
-
-        }
+        PutNextTxEvent(txpseRGND_Ready);
         intr4IntsHandled |= BIT_6;
    	}
 
@@ -964,6 +1127,17 @@ void	SiiMhlTxGotMhlIntr( uint8_t intr_0, uint8_t intr_1 )
 void	SiiMhlTxGotMhlStatus( uint8_t status_0, uint8_t status_1 )
 {
 	TPI_DEBUG_PRINT(("MhlTx: STATUS Arrived. %02X, %02X\n", (int) status_0, (int) status_1));
+}
+
+void HdcpTimerStart(unsigned long m_sec)
+{
+    hdcp_timeout_jiffies = jiffies + msecs_to_jiffies(m_sec);
+}
+
+bool HdcpTimerExpired(void)
+{
+    if( time_after(jiffies, hdcp_timeout_jiffies) ) return true;
+    return false;
 }
 
 void GatherTxEvents(TxPowerState_e txPowerState, uint8_t *pTpiIntsHandled, uint8_t *pCBusIntsHandled, uint8_t *pIntr4IntsHandled)
@@ -1088,8 +1262,9 @@ PStateTableRowHeader_t   pStateHeader = &TxPowerStateTransitionAndResponseTable[
 		if (InterruptStatusImage & BIT_0)
 		{
 
-            *pIntr4IntsHandled = ExamineIntr4( pStateHeader->stateActionFlags & txsfCheckForRGND_Rdy);
+            *pIntr4IntsHandled = ExamineIntr4();  //7.89j
             intsHandled |= InterruptStatusImage & ~BIT_0;
+			if( HdcpTimerExpired() ) hdcp_restart();
 		}
 
 
@@ -1130,9 +1305,12 @@ PStateTableRowHeader_t   pStateHeader = &TxPowerStateTransitionAndResponseTable[
 			}
 		}
 
-		if (hdmiCableConnected == FALSE)
+		if (txsfCheckHDCPTimer & pStateHeader->stateActionFlags)  //7.89j
 		{
-			return;
+			if( HdcpTimerExpired() )
+			{
+				hdcp_restart();
+			}
 		}
 
 		CheckTxFifoStable();
@@ -1150,8 +1328,7 @@ PStateTableRowHeader_t   pStateHeader = &TxPowerStateTransitionAndResponseTable[
         if (mhl_tpi_info->get_int_status() == 0)
 
 		{
-
-            *pIntr4IntsHandled = ExamineIntr4( pStateHeader->stateActionFlags & txsfCheckForRGND_Rdy );
+            *pIntr4IntsHandled = ExamineIntr4( );    //7.89j
         }
     }
 
@@ -1237,6 +1414,7 @@ TxPowerStateEvent_e event;
 				  deglitchTimeout = jiffies + HZ/8;
                 TPI_DEBUG_PRINT(("\ncalling CpCbusInitialize\n\n"));
                 CpCbusInitialize(mhl_tpi_info);
+				hdcp_restart();
             }
             if (transitionActionFlags & txtfUSB_Established)
             {

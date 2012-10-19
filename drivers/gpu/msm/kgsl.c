@@ -2023,6 +2023,7 @@ kgsl_register_device(struct kgsl_device *device)
 				    dev, device,
 				    device->name);
 
+	KGSL_CORE_ERR("YNC created device (%s): (%d), (%d)\n", device->name, kgsl_driver.major, minor);
 	if (IS_ERR(device->dev)) {
 		ret = PTR_ERR(device->dev);
 		KGSL_CORE_ERR("device_create(%s): %d\n", device->name, ret);

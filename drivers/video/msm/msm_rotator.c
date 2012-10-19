@@ -88,6 +88,8 @@
 #define MSM_ROTATOR_SRC_SIZE			(MSM_ROTATOR_BASE+0x1108)
 #define MSM_ROTATOR_SRCP0_ADDR			(MSM_ROTATOR_BASE+0x110c)
 #define MSM_ROTATOR_SRCP1_ADDR			(MSM_ROTATOR_BASE+0x1110)
+#define MSM_ROTATOR_SRCP2_ADDR			(MSM_ROTATOR_BASE+0x1114)
+#define MSM_ROTATOR_SRCP3_ADDR			(MSM_ROTATOR_BASE+0x1118)
 #define MSM_ROTATOR_SRC_YSTRIDE1		(MSM_ROTATOR_BASE+0x111c)
 #define MSM_ROTATOR_SRC_YSTRIDE2		(MSM_ROTATOR_BASE+0x1120)
 #define MSM_ROTATOR_SRC_FORMAT			(MSM_ROTATOR_BASE+0x1124)
@@ -96,6 +98,7 @@
 #define MSM_ROTATOR_OUT_PACK_PATTERN1		(MSM_ROTATOR_BASE+0x1154)
 #define MSM_ROTATOR_OUTP0_ADDR			(MSM_ROTATOR_BASE+0x1168)
 #define MSM_ROTATOR_OUTP1_ADDR			(MSM_ROTATOR_BASE+0x116c)
+#define MSM_ROTATOR_OUTP2_ADDR			(MSM_ROTATOR_BASE+0x1170)
 #define MSM_ROTATOR_OUT_YSTRIDE1		(MSM_ROTATOR_BASE+0x1178)
 #define MSM_ROTATOR_OUT_YSTRIDE2		(MSM_ROTATOR_BASE+0x117c)
 #define MSM_ROTATOR_SRC_XY			(MSM_ROTATOR_BASE+0x1200)
@@ -295,6 +298,8 @@ static int get_bpp(int format)
 
 	case MDP_Y_CBCR_H2V2:
 	case MDP_Y_CRCB_H2V2:
+	case MDP_Y_CB_CR_H2V2:
+	case MDP_Y_CR_CB_H2V2:
 	case MDP_Y_CRCB_H2V2_TILE:
 	case MDP_Y_CBCR_H2V2_TILE:
 		return 1;
@@ -319,9 +324,13 @@ static int msm_rotator_ycxcx_h2v1(struct msm_rotator_img_info *info,
 				  unsigned int in_paddr,
 				  unsigned int out_paddr,
 				  unsigned int use_imem,
-				  int new_session)
+				  int new_session,
+				  unsigned long slen,
+				  unsigned long dlen)
 {
 	int bpp;
+	int src_addr;
+	int dst_addr;
 
 	if (info->src.format != info->dst.format)
 		return -EINVAL;
@@ -331,15 +340,28 @@ static int msm_rotator_ycxcx_h2v1(struct msm_rotator_img_info *info,
 		return -ENOTTY;
 
 	iowrite32(in_paddr, MSM_ROTATOR_SRCP0_ADDR);
-	iowrite32(chroma_addr(in_paddr, info->src.width, info->src.height, bpp),
-		  MSM_ROTATOR_SRCP1_ADDR);
-	iowrite32(out_paddr +
-			((info->dst_y * info->dst.width) + info->dst_x),
-		  MSM_ROTATOR_OUTP0_ADDR);
-	iowrite32(chroma_addr(out_paddr, info->dst.width, info->dst.height,
+	src_addr = chroma_addr(in_paddr, info->src.width, info->src.height, bpp);
+	if (src_addr > in_paddr + slen) {
+		pr_err("Invalid source address");
+		return -EINVAL;
+	}
+	iowrite32(src_addr, MSM_ROTATOR_SRCP1_ADDR);
+
+	dst_addr = out_paddr + ((info->dst_y * info->dst.width) + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP0_ADDR);
+
+	dst_addr = chroma_addr(out_paddr, info->dst.width, info->dst.height,
 			      bpp) +
-			((info->dst_y * info->dst.width) + info->dst_x),
-		  MSM_ROTATOR_OUTP1_ADDR);
+			((info->dst_y * info->dst.width) + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP1_ADDR);
 
 	if (new_session) {
 		iowrite32(info->src.width |
@@ -369,7 +391,7 @@ static int msm_rotator_ycxcx_h2v1(struct msm_rotator_img_info *info,
 			  1 << 8,      		/* ROT_EN */
 			  MSM_ROTATOR_SUB_BLOCK_CFG);
 		iowrite32(0 << 29 | 		/* frame format 0 = linear */
-			  (use_imem ? 0 : 1) << 22 | /* tile size */
+			 (use_imem ? 0 : 1) << 22 | /* tile size */
 			  2 << 19 | 		/* fetch planes 2 = pseudo */
 			  0 << 18 | 		/* unpack align */
 			  1 << 17 | 		/* unpack tight */
@@ -390,36 +412,75 @@ static int msm_rotator_ycxcx_h2v2(struct msm_rotator_img_info *info,
 				  unsigned int in_paddr,
 				  unsigned int out_paddr,
 				  unsigned int use_imem,
-				  int new_session)
+				  int new_session,
+				  unsigned long slen,
+				  unsigned long dlen,
+				  int is_planar)
 {
 	int bpp;
-
-	if (info->src.format != info->dst.format)
-		return -EINVAL;
+	int src_addr;
+	int dst_addr;
 
 	bpp = get_bpp(info->src.format);
 	if (bpp < 0)
 		return -ENOTTY;
 
 	iowrite32(in_paddr, MSM_ROTATOR_SRCP0_ADDR);
-	iowrite32(chroma_addr(in_paddr, info->src.width, info->src.height, bpp),
-		  MSM_ROTATOR_SRCP1_ADDR);
-	iowrite32(out_paddr +
-			((info->dst_y * info->dst.width) + info->dst_x),
-		  MSM_ROTATOR_OUTP0_ADDR);
-	iowrite32(chroma_addr(out_paddr, info->dst.width, info->dst.height,
+
+	src_addr = chroma_addr(in_paddr, info->src.width, info->src.height, bpp);
+	if (src_addr > in_paddr + slen) {
+		pr_err("Invalid source address");
+		return -EINVAL;
+	}
+	iowrite32(src_addr, MSM_ROTATOR_SRCP1_ADDR);
+
+	dst_addr = out_paddr + ((info->dst_y * info->dst.width) + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP0_ADDR);
+
+	dst_addr = chroma_addr(out_paddr, info->dst.width, info->dst.height,
 			      bpp) +
-			((info->dst_y * info->dst.width)/2 + info->dst_x),
-		  MSM_ROTATOR_OUTP1_ADDR);
+			((info->dst_y * info->dst.width)/2 + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP1_ADDR);
+
+	if (is_planar) {
+		iowrite32(in_paddr +
+				(info->src.width / 2) * (info->src.height / 2),
+				MSM_ROTATOR_SRCP2_ADDR);
+	}
 
 	if (new_session) {
-		iowrite32(info->src.width |
-			  info->src.width << 16,
-			  MSM_ROTATOR_SRC_YSTRIDE1);
+		/* iowrite32(info->src.width |       */
+		/*	  info->src.width << 16,     */
+		/*	  MSM_ROTATOR_SRC_YSTRIDE1); */
+		if (is_planar) {
+			iowrite32(info->src.width |
+					(info->src.width / 2) << 16,
+					MSM_ROTATOR_SRC_YSTRIDE1);
+			iowrite32((info->src.width / 2),
+					MSM_ROTATOR_SRC_YSTRIDE2);
+		} else {
+			iowrite32(info->src.width |
+					info->src.width << 16,
+					MSM_ROTATOR_SRC_YSTRIDE1);
+		}
 		iowrite32(info->dst.width |
-			  info->dst.width << 16,
-			  MSM_ROTATOR_OUT_YSTRIDE1);
-		if (info->src.format == MDP_Y_CBCR_H2V2) {
+		/*	  info->dst.width << 16,             */
+		/*	  MSM_ROTATOR_OUT_YSTRIDE1);         */
+		/*if (info->src.format == MDP_Y_CBCR_H2V2) { */
+				info->dst.width << 16,
+				MSM_ROTATOR_OUT_YSTRIDE1);
+
+		if ((info->src.format == MDP_Y_CBCR_H2V2) ||
+		    (info->src.format == MDP_Y_CB_CR_H2V2)) {
 			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CB, CLR_CR, 8),
 				  MSM_ROTATOR_SRC_UNPACK_PATTERN1);
 			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CB, CLR_CR, 8),
@@ -436,7 +497,7 @@ static int msm_rotator_ycxcx_h2v2(struct msm_rotator_img_info *info,
 			  MSM_ROTATOR_SUB_BLOCK_CFG);
 		iowrite32(0 << 29 | 		/* frame format 0 = linear */
 			  (use_imem ? 0 : 1) << 22 | /* tile size */
-			  2 << 19 | 		/* fetch planes 2 = pseudo */
+			  (is_planar ? 1 : 2) << 19 | /* fetch planes */
 			  0 << 18 | 		/* unpack align */
 			  1 << 17 | 		/* unpack tight */
 			  1 << 13 | 		/* unpack count 0=1 component */
@@ -447,6 +508,78 @@ static int msm_rotator_ycxcx_h2v2(struct msm_rotator_img_info *info,
 			  3 << 2  | 		/* B/Cb bits 1=5 2=6 3=8 */
 			  3 << 0,   		/* G/Y  bits 1=5 2=6 3=8 */
 			  MSM_ROTATOR_SRC_FORMAT);
+	}
+	return 0;
+}
+
+
+static int msm_rotator_y_cx_cx_h2v2(struct msm_rotator_img_info *info,
+				  unsigned int in_paddr,
+				  unsigned int out_paddr,
+				  unsigned int use_imem,
+				  int new_session)
+{
+	int bpp;
+	unsigned int addr;
+
+
+	bpp = get_bpp(info->src.format);
+	if (bpp < 0)
+		return -ENOTTY;
+
+	addr = in_paddr;
+	iowrite32(addr, MSM_ROTATOR_SRCP0_ADDR);
+	addr += info->src.width * info->src.height;
+	iowrite32(addr, MSM_ROTATOR_SRCP1_ADDR);
+	addr += (info->src.width / 2) * (info->src.height / 2);
+	iowrite32(addr, MSM_ROTATOR_SRCP2_ADDR);
+
+	iowrite32(out_paddr +
+			((info->dst_y * info->dst.width) + info->dst_x),
+		  MSM_ROTATOR_OUTP0_ADDR);
+	iowrite32(chroma_addr(out_paddr, info->dst.width, info->dst.height,
+			      bpp) +
+			((info->dst_y * info->dst.width)/2 + info->dst_x),
+		  MSM_ROTATOR_OUTP1_ADDR);
+
+	if (new_session) {
+		iowrite32(info->src.width |
+			  (info->src.width / 2) << 16,
+			  MSM_ROTATOR_SRC_YSTRIDE1);
+		iowrite32(info->src.width / 2,
+			  MSM_ROTATOR_SRC_YSTRIDE2);
+
+		iowrite32(info->dst.width |
+			  info->dst.width << 16,
+			  MSM_ROTATOR_OUT_YSTRIDE1);
+		if (info->src.format == MDP_Y_CB_CR_H2V2) {
+			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CB, CLR_CR, 8),
+				  MSM_ROTATOR_SRC_UNPACK_PATTERN1);
+			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CB, CLR_CR, 8),
+				  MSM_ROTATOR_OUT_PACK_PATTERN1);
+		} else {
+			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CR, CLR_CB, 8),
+				  MSM_ROTATOR_SRC_UNPACK_PATTERN1);
+			iowrite32(GET_PACK_PATTERN(0, 0, CLR_CR, CLR_CB, 8),
+				  MSM_ROTATOR_OUT_PACK_PATTERN1);
+		}
+		iowrite32((3  << 18) |		/* chroma sampling 3=4:2:0 */
+				(ROTATIONS_TO_BITMASK(info->rotations) << 9) |
+				1 << 8,		/* ROT_EN */
+				MSM_ROTATOR_SUB_BLOCK_CFG);
+		iowrite32(0 << 29 |		/* frame format 0 = linear */
+			(use_imem ? 0 : 1) << 22 | /* tile size */
+			1 << 19 |		/* fetch planes 1 = pseudo */
+			0 << 18 |		/* unpack align */
+			1 << 17 |		/* unpack tight */
+			1 << 13 |		/* unpack count 0=1 component */
+			(bpp-1) << 9  |		/* src Bpp 0=1 byte ... */
+			0 << 8  |		/* has alpha */
+			0 << 6  |		/* alpha bits 3=8bits */
+			3 << 4  |		/* R/Cr bits 1=5 2=6 3=8 */
+			3 << 2  |		/* B/Cb bits 1=5 2=6 3=8 */
+			3 << 0,			/* G/Y  bits 1=5 2=6 3=8 */
+			MSM_ROTATOR_SRC_FORMAT);
 	}
 	return 0;
 }
@@ -468,10 +601,13 @@ static int msm_rotator_ycxcx_h2v2_tile(struct msm_rotator_img_info *info,
 				  unsigned int in_paddr,
 				  unsigned int out_paddr,
 				  unsigned int use_imem,
-				  int new_session)
+				  int new_session,
+				  unsigned long slen,
+				  unsigned long dlen)
 {
 	int bpp;
 	unsigned int offset = 0;
+	int dst_addr;
 	/*
 	 * each row of samsung tile consists of two tiles in height
 	 * and two tiles in width which means width should align to
@@ -493,14 +629,29 @@ static int msm_rotator_ycxcx_h2v2_tile(struct msm_rotator_img_info *info,
 	offset = tile_size(info->src.width, info->src.height, &tile);
 
 	iowrite32(in_paddr, MSM_ROTATOR_SRCP0_ADDR);
+	if (in_paddr + offset > in_paddr + slen) {
+		pr_err("Invalid source address");
+		return -EINVAL;
+	}
+
 	iowrite32(in_paddr + offset, MSM_ROTATOR_SRCP1_ADDR);
-	iowrite32(out_paddr +
-			((info->dst_y * info->dst.width) + info->dst_x),
-		  MSM_ROTATOR_OUTP0_ADDR);
-	iowrite32(chroma_addr(out_paddr, info->dst.width, info->dst.height,
+
+	dst_addr = out_paddr + ((info->dst_y * info->dst.width) + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP0_ADDR);
+
+	dst_addr = chroma_addr(out_paddr, info->dst.width, info->dst.height,
 			      bpp) +
-			((info->dst_y * info->dst.width)/2 + info->dst_x),
-		  MSM_ROTATOR_OUTP1_ADDR);
+			((info->dst_y * info->dst.width)/2 + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP1_ADDR);
 
 	if (new_session) {
 		iowrite32(info->src.width |
@@ -546,9 +697,12 @@ static int msm_rotator_ycrycb(struct msm_rotator_img_info *info,
 			      unsigned int in_paddr,
 			      unsigned int out_paddr,
 			      unsigned int use_imem,
-			      int new_session)
+			      int new_session,
+			      unsigned long slen,
+			      unsigned long dlen)
 {
 	int bpp;
+	int dst_addr;
 
 	if (info->src.format != info->dst.format)
 		return -EINVAL;
@@ -558,9 +712,13 @@ static int msm_rotator_ycrycb(struct msm_rotator_img_info *info,
 		return -ENOTTY;
 
 	iowrite32(in_paddr, MSM_ROTATOR_SRCP0_ADDR);
-	iowrite32(out_paddr +
-			((info->dst_y * info->dst.width) + info->dst_x),
-		  MSM_ROTATOR_OUTP0_ADDR);
+
+	dst_addr = out_paddr + ((info->dst_y * info->dst.width) + info->dst_x);
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP0_ADDR);
 
 	if (new_session) {
 		iowrite32(info->src.width,
@@ -597,9 +755,12 @@ static int msm_rotator_rgb_types(struct msm_rotator_img_info *info,
 				 unsigned int in_paddr,
 				 unsigned int out_paddr,
 				 unsigned int use_imem,
-				 int new_session)
+				 int new_session,
+				 unsigned long slen,
+				 unsigned long dlen)
 {
 	int bpp, abits, rbits, gbits, bbits;
+	int dst_addr;
 
 	if (info->src.format != info->dst.format)
 		return -EINVAL;
@@ -609,9 +770,13 @@ static int msm_rotator_rgb_types(struct msm_rotator_img_info *info,
 		return -ENOTTY;
 
 	iowrite32(in_paddr, MSM_ROTATOR_SRCP0_ADDR);
-	iowrite32(out_paddr +
-			((info->dst_y * info->dst.width) + info->dst_x) * bpp,
-		  MSM_ROTATOR_OUTP0_ADDR);
+
+	dst_addr = out_paddr + ((info->dst_y * info->dst.width) + info->dst_x) * bpp;
+	if (dst_addr > out_paddr + dlen) {
+		pr_err("Invalid destination address");
+		return -EINVAL;
+	}
+	iowrite32(dst_addr, MSM_ROTATOR_OUTP0_ADDR);
 
 	if (new_session) {
 		iowrite32(info->src.width * bpp, MSM_ROTATOR_SRC_YSTRIDE1);
@@ -764,7 +929,7 @@ static int msm_rotator_do_rotate(unsigned long arg)
 	unsigned int status;
 	struct msm_rotator_data_info info;
 	unsigned int in_paddr, out_paddr;
-	unsigned long len;
+	unsigned long slen, dlen;
 	struct file *src_file = 0;
 	struct file *dst_file = 0;
 	int use_imem = 0;
@@ -774,20 +939,30 @@ static int msm_rotator_do_rotate(unsigned long arg)
 		return -EFAULT;
 
 	rc = get_img(info.src.memory_id, (unsigned long *)&in_paddr,
-			(unsigned long *)&len, &src_file);
+			(unsigned long *)&slen, &src_file);
 	if (rc) {
 		PR_DISP_ERR("%s: in get_img() failed id=0x%08x\n",
 		       DRIVER_NAME, info.src.memory_id);
 		return rc;
 	}
+	if (info.src.offset > slen) {
+		PR_DISP_ERR("Invalid source offset");
+		return -EINVAL;
+	}
+
 	in_paddr += info.src.offset;
 
 	rc = get_img(info.dst.memory_id, (unsigned long *)&out_paddr,
-			(unsigned long *)&len, &dst_file);
+			(unsigned long *)&dlen, &dst_file);
 	if (rc) {
 		PR_DISP_ERR("%s: out get_img() failed id=0x%08x\n",
 		       DRIVER_NAME, info.dst.memory_id);
 		return rc;
+	}
+
+	if (info.dst.offset > dlen) {
+		pr_err("Invalid destination offset");
+		return -EINVAL;
 	}
 	out_paddr += info.dst.offset;
 
@@ -852,34 +1027,52 @@ static int msm_rotator_do_rotate(unsigned long arg)
 					   in_paddr, out_paddr,
 					   use_imem,
 					   msm_rotator_dev->last_session_idx
-								!= s);
+								!= s,
+					   slen,
+					   dlen);
 		break;
 	case MDP_Y_CBCR_H2V2:
 	case MDP_Y_CRCB_H2V2:
 		rc = msm_rotator_ycxcx_h2v2(msm_rotator_dev->img_info[s],
 					    in_paddr, out_paddr, use_imem,
 					    msm_rotator_dev->last_session_idx
-								!= s);
+					    != s,
+					    slen,
+					    dlen, 0);
 		break;
 	case MDP_Y_CRCB_H2V2_TILE:
 	case MDP_Y_CBCR_H2V2_TILE:
 		rc = msm_rotator_ycxcx_h2v2_tile(msm_rotator_dev->img_info[s],
 				in_paddr, out_paddr, use_imem,
 				msm_rotator_dev->last_session_idx
-				!= s);
-	break;
+				!= s,
+				slen,
+				dlen);
+		break;
+
+	case MDP_Y_CB_CR_H2V2:
+	case MDP_Y_CR_CB_H2V2:
+		rc = msm_rotator_y_cx_cx_h2v2(msm_rotator_dev->img_info[s],
+					    in_paddr, out_paddr, use_imem,
+					    msm_rotator_dev->last_session_idx
+								!= s);
+		break;
 
 	case MDP_Y_CBCR_H2V1:
 	case MDP_Y_CRCB_H2V1:
 		rc = msm_rotator_ycxcx_h2v1(msm_rotator_dev->img_info[s],
 					    in_paddr, out_paddr, use_imem,
 					    msm_rotator_dev->last_session_idx
-								!= s);
+					    != s,
+					    slen,
+					    dlen);
 		break;
 	case MDP_YCRYCB_H2V1:
 		rc = msm_rotator_ycrycb(msm_rotator_dev->img_info[s],
 				in_paddr, out_paddr, use_imem,
-				msm_rotator_dev->last_session_idx != s);
+				msm_rotator_dev->last_session_idx != s,
+				slen,
+				dlen);
 		break;
 	default:
 		rc = -EINVAL;
@@ -959,6 +1152,8 @@ static int msm_rotator_start(unsigned long arg)
 	case MDP_BGRA_8888:
 	case MDP_Y_CBCR_H2V2:
 	case MDP_Y_CRCB_H2V2:
+	case MDP_Y_CB_CR_H2V2:
+	case MDP_Y_CR_CB_H2V2:
 	case MDP_Y_CBCR_H2V1:
 	case MDP_Y_CRCB_H2V1:
 	case MDP_YCRYCB_H2V1:
@@ -979,6 +1174,8 @@ static int msm_rotator_start(unsigned long arg)
 	case MDP_BGRA_8888:
 	case MDP_Y_CBCR_H2V2:
 	case MDP_Y_CRCB_H2V2:
+	case MDP_Y_CB_CR_H2V2:
+	case MDP_Y_CR_CB_H2V2:
 	case MDP_Y_CBCR_H2V1:
 	case MDP_Y_CRCB_H2V1:
 	case MDP_YCRYCB_H2V1:

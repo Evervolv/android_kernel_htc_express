@@ -23,14 +23,17 @@ typedef enum
     , txpsD0_Connected                      = 1
     , txpsD0_ConnectedReadyToSampleRSEN     = 2
     , txpsD3                                = TX_POWER_STATE_D3
-    , txpsD2_RegistersAccessible            = 4
+    , txpsD0_HDMICableConnected                          //7.89j
+    , txpsD0_HDMICableConnectedReadyToSampleRSEN         //7.89j
+    , txpsD0_HDCPAuthenticated                           //7.89j
+    , txpsD0_HDCPAuthenticatedReadyToSampleRSEN          //7.89j
 
     ,txps_NUM_STATES  // this entry must be last
 }TxPowerState_e;
 
 typedef enum
 {
-      txpseNoOp
+      txpseNoOp                             = 0
     , txpseRGND_Ready
     , txpseMHL_Established
     , txpseUSB_Established
@@ -40,10 +43,12 @@ typedef enum
     , txpseRSEN_SampledLow
     , txpseDDC_Abort
     , txpseSCDT_Change
-    , txpseHDMI_CableDisconnected
-    , txpseHDMI_CableConnected
+    , txpseHDMI_CableConnected                 //7.89j
+    , txpseHDMI_CableDisconnected              //7.89j
     , txpseNMI_Occurred
     , txpseD2D0_Transition
+    , txpseHDCPAuthenticated                  //7.89j
+    , txpseHDCPDeAuthenticated                //7.89j
 
     , txpseNUM_EVENTS // this entry must be last
 }TxPowerStateEvent_e;
@@ -58,15 +63,13 @@ typedef enum
     , txtfMHL_Established               = 0x0004
     , txtfUSB_Established               = 0x0008
     , txtfCBUS_LockOut                  = 0x0010
-    , txtfCBUS_LockOutInit              = 0x0020
-    , txtfSetDeferRSEN_SamplingTimer    = 0x0040
-    , txtfSetDeGlitchTimer              = 0x0080
-    , txtfGoToD3                        = 0x0100
-    , txtfMSC_Abort                     = 0x0200
-    , txtfSCDT_Change                   = 0x0400
-    , txtfHDMI_CableDisconnected        = 0x0800
-    , txtfHDMI_CableConnected           = 0x1000
-    , txtfNMI_Occurred                  = 0x2000
+    , txtfSetDeferRSEN_SamplingTimer    = 0x0020    //7.89j
+    , txtfSetDeGlitchTimer              = 0x0040
+    , txtfGoToD3                        = 0x0080
+    , txtfHDMICableConnected            = 0x0100
+    , txtfHDMICableDisconnected         = 0x0200
+    , txtfHDCPAuthenticated             = 0x0400
+    , txtfHDCPDeAuthenticated           = 0x0800
 }TxPowerActionFlags_e;
 
 typedef enum
@@ -88,6 +91,7 @@ typedef enum
     , txsfExaminePinTxInt                       = 0x1000
     , txsfCheckForRGND_Rdy                      = 0x2000
     , txsfCheckDeferRSEN_SamplingTimerExpired   = 0x4000
+    , txsfCheckHDCPTimer                        = 0x8000    //7.89j
 
 }TxPowerStateFlags_e;
 
